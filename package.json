@@ -1,0 +1,31 @@
+{
+  "name": "couchbase-admin",
+  "version": "0.0.1",
+  "description": "Couchbase Administration Tool",
+  "homepage": "https://github.com/vredens/node-couchbase-admin",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:vredens/node-couchbase-admin"
+  },
+  "author": "Vredens",
+  "main": "index.js",
+  "dependencies": {
+    "bluebird": "^2.3.5",
+    "colors": "^1.1.2",
+    "commander": "^2.9.0",
+    "couchbase": "2.0.12",
+    "read": "^1.0.7"
+  },
+  "keywords": [
+    "couchbase",
+    "admin",
+    "management",
+    "compare",
+    "views",
+    "design documents",
+    "cli"
+  ],
+  "bin": {
+    "cb-admin": "./cli.js"
+  }
+}
