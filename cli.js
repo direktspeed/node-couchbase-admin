@@ -13,8 +13,13 @@ var Bucket = require('./lib/bucket');
 var ddocs = require('./lib/ddocs');
 var cli = require('./lib/helpers/cli');
 
-function collect(val, total) {
+function collectHash(val, total) {
     total[val] = true;
+    return total;
+}
+
+function collectArray(val, total) {
+    total.push(val);
     return total;
 }
 
@@ -25,8 +30,11 @@ program
     .option('--file <file>', 'Write the source cluster design views to a source file')
     .option('-b, --src-bucket <bucket>', 'Source bucket (defaults to default)', 'default')
     .option('-B, --dst-bucket <bucket>', 'Destination bucket (defaults to default)', 'default')
-    .option('-i, --include <design doc>', 'Filter in a design document', collect, {})
-    .option('-e, --exclude <design doc>', 'Filter out a design document', collect, {})
+    .option('-i, --include <design doc>', 'Filter in a design document', collectHash, {})
+    .option('-e, --exclude <design doc>', 'Filter out a design document', collectHash, {})
+    .option('--prefix <prefix>', 'Used for copying or validating documents.', collectHash, {})
+    .option('--prefix-splitter <char>', 'Character used to split couchbase keys from their prefix (defaults to "!")', '!')
+    .option('--overwrite', 'Overwrite documents when copying and some already exist on the destination bucket.')
     .option('-v, --verbose', 'Be verbose.')
     .parse(process.argv);
 
@@ -50,6 +58,22 @@ var logger = {
 var env = {};
 
 switch (ns) {
+	case 'docs':
+		// create source bucket instance
+		if (program.srcConn) {
+			print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
+			env.src = new Bucket({ conn: program.srcConn, bucket: program.srcBucket, logger: logger });
+		}
+
+		// create destination bucket instance
+		if (program.dstConn) {
+			print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
+			env.dst = new Bucket({ conn: program.dstConn, bucket: program.dstBucket, logger: logger });
+		}
+
+		docmanagement(cmd);
+	break;
+
 	case 'dd':
 	case 'design-documents':
 		// create source bucket instance
@@ -74,7 +98,9 @@ switch (ns) {
 	break;
 }
 
+//==============================================================================
 function ddmanagement(cmd) {
+//==============================================================================
 	switch (cmd) {
 		case 'export':
 			env.src.getDesignDocuments()
@@ -111,6 +137,114 @@ function ddmanagement(cmd) {
 }
 
 //==============================================================================
+function docmanagement(cmd) {
+//==============================================================================
+	switch (cmd) {
+		case 'copy':
+		case 'move':
+			var counter = 0;
+
+			return env.src.viewIterator(Object.keys(program.prefix), function (doc) {
+				var id = doc.id;
+
+				counter++;
+
+				return env.src.getDocument(id)
+				.then(function (doc) {
+					// TODO: setup the mutation plugin here!
+					if (program.overwrite) {
+						return env.dst.upsertDocument(id, doc.value);
+					} else {
+						return env.dst.insertDocument(id, doc.value);
+					}
+				})
+				.then(function () {
+					if (cmd === 'move') {
+						return env.src.removeDocument(id);
+					}
+				});
+			})
+			.then(function () {
+				if (cmd === 'move') {
+					print('Moved [', counter, '] documents.');
+				} else {
+					print('Copied [', counter, '] documents.');
+				}
+			})
+			.nodeify(terminate);
+		break;
+
+		case 'validate':
+			return env.src.fetchAllNotMatching(Object.keys(program.prefix))
+			.then(function (res) {
+				var total = 0;
+				var prefixes = {};
+				for (var i = 0; i < res.items.length; i++) {
+					total++;
+					var a = res.items[i].id.split(program.prefixSplitter);
+					var pid = a[0];
+					if (! (pid in prefixes)) { prefixes[pid] = []; }
+					if (prefixes[pid].length < 10) { prefixes[pid].push(res.items[i].id); }
+				}
+				print('-------------------------------------------------------------------- REPORT');
+				if (total) {
+					console.log('Total bad docs:'.yellow, ('' + total).red);
+					console.log('Bad prefixes (showing up to 10 sample docs per prefix):'.yellow);
+					var ps = Object.keys(prefixes).sort();
+					for (var i = 0; i < ps.length; i++) {
+						console.log(('  [' + ps[i] + ']').red);
+						for (var j = 0; j < prefixes[ps[i]].length; j++) {
+							console.log('    ', prefixes[ps[i]][j]);
+						}
+					}
+				} else {
+					console.log('No invalid prefixes found!'.green);
+				}
+			})
+			.nodeify(terminate);
+		break;
+
+		case 'check-prefix':
+			return env.src.fetchAllMatching(Object.keys(program.prefix))
+			.then(function (res) {
+				var total = 0;
+				var prefixes = {};
+				for (var i = 0; i < res.items.length; i++) {
+					total++;
+					var a = res.items[i].id.split(program.prefixSplitter);
+					var pid = a[0];
+					if (! (pid in prefixes)) { prefixes[pid] = []; }
+					if (prefixes[pid].length < 10) { prefixes[pid].push(res.items[i].id); }
+				}
+				print('-------------------------------------------------------------------- REPORT');
+				if (total) {
+					console.log('Total docs:'.yellow, ('' + total).green);
+					console.log('Prefixes found (showing up to 10 sample docs per prefix):'.yellow);
+					var ps = Object.keys(prefixes).sort();
+					for (var i = 0; i < ps.length; i++) {
+						console.log(('  [' + ps[i] + ']').green);
+						for (var j = 0; j < prefixes[ps[i]].length; j++) {
+							console.log('    ', prefixes[ps[i]][j]);
+						}
+					}
+				} else {
+					console.log('No prefixes found!'.red);
+				}
+			})
+			.nodeify(terminate);
+		break;
+
+		default:
+			console.log('Usage: cb-admin docs <command> [opts]');
+			console.log('Commands:');
+			console.log('  - `copy`');
+			console.log('  - `move`');
+			console.log('  - `validate`');
+		break;
+	}
+}
+
+//==============================================================================
 function diff(opts) {
 //==============================================================================
 	var props = {};
@@ -122,8 +256,12 @@ function diff(opts) {
 		props.src = env.src.getDesignDocuments();
 	}
 
-	// destination can only be a couchbase bucket instance
-	props.dst = env.dst.getDesignDocuments();
+	// destination can either be a file or a couchbase bucket instance
+	if (opts.dstFile) {
+		props.dst = ddocs.import(opts.dstFile);
+	} else {
+		props.dst = env.dst.getDesignDocuments();
+	}
 
 	return Promise.props(props)
 	.then(function (r) {
