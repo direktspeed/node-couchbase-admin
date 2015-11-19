@@ -24,7 +24,7 @@ function collectArray(val, total) {
 }
 
 program
-    .version('0.1.0')
+    .version('0.2.0')
     .option('-s, --src <conn or file>', 'Source cluster connection string or file')
     .option('-d, --dst <conn>', 'Destination cluster connection string')
     .option('--file <file>', 'Write the source cluster design views to a source file')
@@ -35,6 +35,9 @@ program
     .option('--prefix <prefix>', 'Used for copying or validating documents.', collectHash, {})
     .option('--prefix-splitter <char>', 'Character used to split couchbase keys from their prefix (defaults to "!")', '!')
     .option('--overwrite', 'Overwrite documents when copying and some already exist on the destination bucket.')
+    .option('--timeout <timeout>', 'Specify a timeout for couchbase operations (defaults to 10, unit is minutes).', 10)
+    .option('--admin-design-document <name>', 'Override the default design document name for cbadmin (defaults to `cbadmin`).', 'cbadmin')
+    .option('--iterative', 'Use iterative mode when manipulating documents.')
     .option('-v, --verbose', 'Be verbose.')
     .parse(process.argv);
 
@@ -62,13 +65,25 @@ switch (ns) {
 		// create source bucket instance
 		if (program.srcConn) {
 			print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
-			env.src = new Bucket({ conn: program.srcConn, bucket: program.srcBucket, logger: logger });
+			env.src = new Bucket({
+				conn: program.srcConn,
+				bucket: program.srcBucket,
+				logger: logger,
+				timeout: program.timeout * 60 * 1000,
+				admin_design_document: program.adminDesignDocument,
+			});
 		}
 
 		// create destination bucket instance
 		if (program.dstConn) {
 			print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
-			env.dst = new Bucket({ conn: program.dstConn, bucket: program.dstBucket, logger: logger });
+			env.dst = new Bucket({
+				conn: program.dstConn,
+				bucket: program.dstBucket,
+				logger: logger,
+				timeout: program.timeout * 60 * 1000,
+				admin_design_document: program.adminDesignDocument,
+			});
 		}
 
 		docmanagement(cmd);
@@ -79,13 +94,13 @@ switch (ns) {
 		// create source bucket instance
 		if (program.srcConn) {
 			print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
-			env.src = new Bucket({ conn: program.srcConn, bucket: program.srcBucket, logger: logger });
+			env.src = new Bucket({ conn: program.srcConn, bucket: program.srcBucket, logger: logger, timeout: program.timeout * 60 * 1000 });
 		}
 
 		// create destination bucket instance
 		if (program.dstConn) {
 			print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
-			env.dst = new Bucket({ conn: program.dstConn, bucket: program.dstBucket, logger: logger });
+			env.dst = new Bucket({ conn: program.dstConn, bucket: program.dstBucket, logger: logger, timeout: program.timeout * 60 * 1000 });
 		}
 
 		ddmanagement(cmd);
@@ -94,7 +109,8 @@ switch (ns) {
 	default:
 		console.log('Usage: cb-admin <namespace> <command> [opts]');
 		console.log('Namespaces:');
-		console.log('  - `dd` or `design-documents`');
+		console.log('  dd     manage design documents');
+		console.log('  docs   check and manipulate documents');
 	break;
 }
 
@@ -129,9 +145,9 @@ function ddmanagement(cmd) {
 		default:
 			console.log('Usage: cb-admin dd <command> [opts]');
 			console.log('Commands:');
-			console.log('  - `export`');
-			console.log('  - `diff`');
-			console.log('  - `upgrade`');
+			console.log('  export');
+			console.log('  diff');
+			console.log('  upgrade');
 		break;
 	}
 }
@@ -144,10 +160,19 @@ function docmanagement(cmd) {
 		case 'move':
 			var counter = 0;
 
-			return env.src.viewIterator(Object.keys(program.prefix), function (doc) {
+			// the iterator function
+			var _iterator = function (doc) {
 				var id = doc.id;
 
 				counter++;
+
+				if (counter % 100 === 0) {
+					if (cmd === 'move') {
+						print('Moved [', counter, '] documents.');
+					} else {
+						print('Copied [', counter, '] documents.');
+					}
+				}
 
 				return env.src.getDocument(id)
 				.then(function (doc) {
@@ -163,15 +188,47 @@ function docmanagement(cmd) {
 						return env.src.removeDocument(id);
 					}
 				});
-			})
-			.then(function () {
-				if (cmd === 'move') {
-					print('Moved [', counter, '] documents.');
-				} else {
-					print('Copied [', counter, '] documents.');
-				}
-			})
-			.nodeify(terminate);
+			};
+
+			if (program.iterative) {
+				// use a view iterator
+				return env.src.viewIterator(Object.keys(program.prefix), _iterator)
+				.nodeify(terminate);
+			} else {
+				// fetch the entire data set and process it
+				return env.src.fetchAllMatching(Object.keys(program.prefix))
+				.then(function (res) {
+					return Promise.map(res.items, _iterator, { concurrency: 100 });
+				})
+				.nodeify(terminate);
+			}
+		break;
+
+		case 'delete':
+			var counter = 0;
+
+			// the iterator function
+			var _iterator = function(i) {
+				return env.src.removeDocument(i.id)
+				.then(function () {
+					if (++counter % 100 === 0) {
+						print('deleted [', counter, '] documents');
+					}
+				});
+			}
+
+			if (program.iterative) {
+				// use the view iterator
+				return env.src.viewIterator(Object.keys(program.prefix), _iterator)
+				.nodeify(terminate);
+			} else {
+				// run the iterator in blocks of 100 for the entire result set
+				return env.src.fetchAllMatching(Object.keys(program.prefix))
+				.then(function (res) {
+					return Promise.map(res.items, _iterator, { concurrency: 100 });
+				})
+				.nodeify(terminate);
+			}
 		break;
 
 		case 'validate':
@@ -204,7 +261,7 @@ function docmanagement(cmd) {
 			.nodeify(terminate);
 		break;
 
-		case 'check-prefix':
+		case 'check':
 			return env.src.fetchAllMatching(Object.keys(program.prefix))
 			.then(function (res) {
 				var total = 0;
@@ -234,12 +291,22 @@ function docmanagement(cmd) {
 			.nodeify(terminate);
 		break;
 
+		case 'cleanup':
+			return env.src.removeFetchAllView(Object.keys(program.prefix), 'not-matching')
+			.then(function () {
+				return env.src.removeFetchAllView(Object.keys(program.prefix), 'matching')
+			})
+			.nodeify(terminate);
+		break;
+
 		default:
 			console.log('Usage: cb-admin docs <command> [opts]');
 			console.log('Commands:');
-			console.log('  - `copy`');
-			console.log('  - `move`');
-			console.log('  - `validate`');
+			console.log('  copy');
+			console.log('  move');
+			console.log('  delete');
+			console.log('  validate');
+			console.log('  check');
 		break;
 	}
 }
