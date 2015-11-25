@@ -1,13 +1,13 @@
 {
   "name": "couchbase-admin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Couchbase Administration Tool",
-  "homepage": "https://github.com/vredens/node-couchbase-admin",
+  "homepage": "https://bitbucket.com/eeriesoftronics/node-couchbase-admin",
   "repository": {
     "type": "git",
-    "url": "git@github.com:vredens/node-couchbase-admin"
+    "url": "git@bitbucket.org:eeriesoftronics/node-couchbase-admin.git"
   },
-  "author": "Vredens",
+  "author": "JB 'Vredens' Ribeiro",
   "main": "index.js",
   "dependencies": {
     "bluebird": "^2.3.5",
@@ -27,5 +27,6 @@
   ],
   "bin": {
     "cb-admin": "./cli.js"
-  }
+  },
+  "license": "MIT"
 }

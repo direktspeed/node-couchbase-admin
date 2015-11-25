@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.0
+
+- [new] add license to package.json
+- [new] Overall changes to make the code usable as a library too instead of just
+  a command line interface
+- [new] method `Bucket.createView`: assist creating views which checks that they
+  don't exist already, performs operations only when necessary.
+- [new] method `Bucket.upgradeView`: assist creating views which creates or
+  upgrades a view and only performs operations when necessary.
+- [new] method `Bucket.removeView`: assist removing views which only performs
+  operations when necessary.
+- [upd] improve document manipulatation error handling
+- [new] document manipulation: retry mechanism with exponential timeout.
+- [upd] executing views: retry mechanism with exponential timeout.
+- [upd] fetch stale views only when running a ranges query for the first time or
+  querying a view without ranges.
+- [upd] add documentation about couchbase-admin as a module instead of just a
+  CLI.
+
 ## v0.2.0
 
 - [new] `docs delete` command

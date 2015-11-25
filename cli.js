@@ -24,7 +24,7 @@ function collectArray(val, total) {
 }
 
 program
-    .version('0.2.0')
+    .version('0.3.0')
     .option('-s, --src <conn or file>', 'Source cluster connection string or file')
     .option('-d, --dst <conn>', 'Destination cluster connection string')
     .option('--file <file>', 'Write the source cluster design views to a source file')
@@ -35,8 +35,8 @@ program
     .option('--prefix <prefix>', 'Used for copying or validating documents.', collectHash, {})
     .option('--prefix-splitter <char>', 'Character used to split couchbase keys from their prefix (defaults to "!")', '!')
     .option('--overwrite', 'Overwrite documents when copying and some already exist on the destination bucket.')
-    .option('--timeout <timeout>', 'Specify a timeout for couchbase operations (defaults to 10, unit is minutes).', 10)
-    .option('--admin-design-document <name>', 'Override the default design document name for cbadmin (defaults to `cbadmin`).', 'cbadmin')
+    .option('--timeout <timeout>', 'Specify a timeout (in minutes) for couchbase operations (defaults to 10).', 10)
+    .option('--admin-design-document <name>', 'Override the default design document name used by cb-admin (defaults to `cbadmin`).', 'cbadmin')
     .option('--iterative', 'Use iterative mode when manipulating documents.')
     .option('-v, --verbose', 'Be verbose.')
     .parse(process.argv);
@@ -60,49 +60,37 @@ var logger = {
 
 var env = {};
 
+// create source bucket instance
+if (program.srcConn) {
+	print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
+	env.src = new Bucket({
+		conn: program.srcConn,
+		bucket: program.srcBucket,
+		logger: logger,
+		timeout: program.timeout * 60 * 1000,
+		admin_design_document: program.adminDesignDocument,
+	});
+}
+
+// create destination bucket instance
+if (program.dstConn) {
+	print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
+	env.dst = new Bucket({
+		conn: program.dstConn,
+		bucket: program.dstBucket,
+		logger: logger,
+		timeout: program.timeout * 60 * 1000,
+		admin_design_document: program.adminDesignDocument,
+	});
+}
+
 switch (ns) {
 	case 'docs':
-		// create source bucket instance
-		if (program.srcConn) {
-			print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
-			env.src = new Bucket({
-				conn: program.srcConn,
-				bucket: program.srcBucket,
-				logger: logger,
-				timeout: program.timeout * 60 * 1000,
-				admin_design_document: program.adminDesignDocument,
-			});
-		}
-
-		// create destination bucket instance
-		if (program.dstConn) {
-			print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
-			env.dst = new Bucket({
-				conn: program.dstConn,
-				bucket: program.dstBucket,
-				logger: logger,
-				timeout: program.timeout * 60 * 1000,
-				admin_design_document: program.adminDesignDocument,
-			});
-		}
-
 		docmanagement(cmd);
 	break;
 
 	case 'dd':
 	case 'design-documents':
-		// create source bucket instance
-		if (program.srcConn) {
-			print('Source connection [', program.srcConn, '][bucket:', program.srcBucket, ']');
-			env.src = new Bucket({ conn: program.srcConn, bucket: program.srcBucket, logger: logger, timeout: program.timeout * 60 * 1000 });
-		}
-
-		// create destination bucket instance
-		if (program.dstConn) {
-			print('Destination connection [', program.dstConn, '][bucket:', program.dstBucket, ']');
-			env.dst = new Bucket({ conn: program.dstConn, bucket: program.dstBucket, logger: logger, timeout: program.timeout * 60 * 1000 });
-		}
-
 		ddmanagement(cmd);
 	break;
 
@@ -155,24 +143,57 @@ function ddmanagement(cmd) {
 //==============================================================================
 function docmanagement(cmd) {
 //==============================================================================
+	var counter = 0;
+	var stime, etime, elapsed;
+
+	var _postOperation = function () {
+		// initialize the timer on the first iteration
+		if (counter === 0) {
+			stime = process.hrtime();
+		}
+
+		if (++counter % 1e3 === 0) {
+			etime = process.hrtime();
+			elapsed = (etime[0] - stime[0]) * 1e3 + Math.floor((etime[1] - stime[1]) / 1e6);
+			stime = etime;
+
+			switch(cmd) {
+				case 'move':
+					print('Moved [', counter, '] documents in [' + elapsed + 'ms].');
+				break;
+				case 'copy':
+					print('Copied [', counter, '] documents in [' + elapsed + 'ms].');
+				break;
+				case 'delete':
+					print('Deleted [', counter, '] documents in [' + elapsed + 'ms].');
+				break;
+			}
+		}
+	};
+	var _finalOperation = function () {
+		etime = process.hrtime();
+		elapsed = (etime[0] - stime[0]) * 1e3 + Math.floor((etime[1] - stime[1]) / 1e6);
+		stime = etime;
+
+		switch(cmd) {
+			case 'move':
+				print('Moved [', counter, '] documents in [' + elapsed + 'ms].');
+			break;
+			case 'copy':
+				print('Copied [', counter, '] documents in [' + elapsed + 'ms].');
+			break;
+			case 'delete':
+				print('Deleted [', counter, '] documents in [' + elapsed + 'ms].');
+			break;
+		}
+	};
+
 	switch (cmd) {
 		case 'copy':
 		case 'move':
-			var counter = 0;
-
 			// the iterator function
 			var _iterator = function (doc) {
 				var id = doc.id;
-
-				counter++;
-
-				if (counter % 100 === 0) {
-					if (cmd === 'move') {
-						print('Moved [', counter, '] documents.');
-					} else {
-						print('Copied [', counter, '] documents.');
-					}
-				}
 
 				return env.src.getDocument(id)
 				.then(function (doc) {
@@ -187,48 +208,34 @@ function docmanagement(cmd) {
 					if (cmd === 'move') {
 						return env.src.removeDocument(id);
 					}
-				});
+				})
+				.catch(function (err) {
+					if (err.code === 13) {
+						console.error('document [key:' + id + '] does not exist, skipping... [ec:' + err.code + '][em:' + err.message + ']');
+						return true;
+					}
+
+					console.error('unexpected error [key:' + id + '][ec:' + err.code + '][em:' + err.message + ']');
+					throw err;
+				})
+				.then(_postOperation);
 			};
 
-			if (program.iterative) {
-				// use a view iterator
-				return env.src.viewIterator(Object.keys(program.prefix), _iterator)
-				.nodeify(terminate);
-			} else {
-				// fetch the entire data set and process it
-				return env.src.fetchAllMatching(Object.keys(program.prefix))
-				.then(function (res) {
-					return Promise.map(res.items, _iterator, { concurrency: 100 });
-				})
-				.nodeify(terminate);
-			}
+			return env.src.viewIterator(Object.keys(program.prefix), _iterator, { iterate: !!program.iterative })
+			.then(_finalOperation)
+			.nodeify(terminate);
 		break;
 
 		case 'delete':
-			var counter = 0;
-
 			// the iterator function
 			var _iterator = function(i) {
 				return env.src.removeDocument(i.id)
-				.then(function () {
-					if (++counter % 100 === 0) {
-						print('deleted [', counter, '] documents');
-					}
-				});
+				.then(_postOperation);
 			}
 
-			if (program.iterative) {
-				// use the view iterator
-				return env.src.viewIterator(Object.keys(program.prefix), _iterator)
-				.nodeify(terminate);
-			} else {
-				// run the iterator in blocks of 100 for the entire result set
-				return env.src.fetchAllMatching(Object.keys(program.prefix))
-				.then(function (res) {
-					return Promise.map(res.items, _iterator, { concurrency: 100 });
-				})
-				.nodeify(terminate);
-			}
+			return env.src.viewIterator(Object.keys(program.prefix), _iterator, { iterate: !!program.iterative })
+			.then(_finalOperation)
+			.nodeify(terminate);
 		break;
 
 		case 'validate':
@@ -453,10 +460,20 @@ function hash_hex(data) {
 //==============================================================================
 function terminate(err) {
 //==============================================================================
-	if (env.src) { env.src.disconnect(); }
-	if (env.dst) { env.dst.disconnect(); }
-	if (err) { throw err; }
+	print('-------------------------------------------------------------------- TERMINATING');
+	Promise.delay(1000)
+	.then(function () {
+		if (err) {
+			console.error(err);
+		}
+		try {
+			if (env.src) { env.src.disconnect(); }
+			if (env.dst) { env.dst.disconnect(); }
+		} catch (e) {
+			console.log('error:', e.message);
+		}
+		if (err) { throw err; }
 
-	console.log('-------');
-	console.log('bye');
+		console.log('bye');
+	});
 }
