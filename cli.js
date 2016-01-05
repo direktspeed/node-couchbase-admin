@@ -154,8 +154,14 @@ function docmanagement(cmd) {
 
 		if (++counter % 1e3 === 0) {
 			etime = process.hrtime();
-			elapsed = (etime[0] - stime[0]) * 1e3 + Math.floor((etime[1] - stime[1]) / 1e6);
-			stime = etime;
+
+			// there were no documents to process
+			if (stime === 0) {
+				elapsed = 0;
+			} else {
+				elapsed = (etime[0] - stime[0]) * 1e3 + Math.floor((etime[1] - stime[1]) / 1e6);
+				stime = etime;
+			}
 
 			switch(cmd) {
 				case 'move':
