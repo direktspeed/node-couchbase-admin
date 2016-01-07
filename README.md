@@ -24,11 +24,11 @@ The project includes an API as well as a CLI. It aims to provide an easy way to 
 
 ## CLI
 
-See the [CLI reference](docs/CLI.md).
+See the [CLI reference](https://bitbucket.org/eeriesoftronics/node-couchbase-admin/src/master/docs/CLI.md).
 
 ## API
 
-See the [API reference](docs/API.md). Most API methods will return Promises using [Bluebird](http://bluebirdjs.com/docs/getting-started.html) implementation, please check the link for more information.
+See the [API reference](https://bitbucket.org/eeriesoftronics/node-couchbase-admin/src/master/docs/API.md). Most API methods will return Promises using [Bluebird](http://bluebirdjs.com/docs/getting-started.html) implementation, please check the link for more information.
 
 ## License
 

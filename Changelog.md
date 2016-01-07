@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1
+
+Thanks to Patrick Marques for:
+
+- [fix] TypeError if no document processed
+- [fix] missed op parameter
+
 ## v0.3.0
 
 - [new] add license to package.json

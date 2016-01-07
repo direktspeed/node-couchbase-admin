@@ -24,7 +24,7 @@ function collectArray(val, total) {
 }
 
 program
-    .version('0.3.0')
+    .version('0.3.1')
     .option('-s, --src <conn or file>', 'Source cluster connection string or file')
     .option('-d, --dst <conn>', 'Destination cluster connection string')
     .option('--file <file>', 'Write the source cluster design views to a source file')
