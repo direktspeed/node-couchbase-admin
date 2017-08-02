@@ -1,5 +1,7 @@
 # Couchbase Admin
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/direktspeed/node-couchbase-admin.svg)](https://greenkeeper.io/)
+
 Couchbase cluster administrator is both a CLI and API for doing administrative tasks on Couchbase clusters.
 
 The primary reason this project was born was the need to compare design documents between two clusters and upgrade a destination cluster. It evolved and the main features now are
