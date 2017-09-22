@@ -10,7 +10,7 @@
   "author": "JB 'Vredens' Ribeiro",
   "main": "index.js",
   "dependencies": {
-    "bluebird": "^2.3.5",
+    "bluebird": "^3.0.0",
     "colors": "^1.1.2",
     "commander": "^2.9.0",
     "couchbase": "2.3.5",
