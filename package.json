@@ -14,7 +14,7 @@
     "colors": "^1.1.2",
     "commander": "^6.0.0",
     "couchbase": "3.1.0",
-    "read": "^1.0.7"
+    "read": "^3.0.0"
   },
   "keywords": [
     "couchbase",
